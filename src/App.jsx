@@ -25,6 +25,10 @@ import MasterclassCourseQuestions from './components/MasterclassCourseQuestions'
 import QuizAttempt from './components/QuizAttempt';
 import AdminCommunityTab from './components/AdminCommunityTab';
 import UserCommunityTab from './components/UserCommunityTab';
+// 🚨 ADDED: Video Components
+import VideoCourses from './components/VideoCourses';
+import MasterclassVideos from './components/MasterclassVideos';
+import AdminVideoCourses from './components/AdminVideoCourses';
 import './App.css';
 
 // Reusable Slider Component for both Splash Screen and Home Page
@@ -130,7 +134,8 @@ const App = () => {
     quizCompleted: 0,
     courseCompleted: 0,
     manageCourses: 0,
-    messagesFromStudents: 0
+    messagesFromStudents: 0,
+    videoCourses: 0 // 🚨 ADDED: Video courses notification count
   });
 
   const validateToken = (token) => {
@@ -206,7 +211,8 @@ const App = () => {
         adminMessages: 0,
         quizCompleted: 0,
         courseCompleted: 0,
-        messagesFromStudents: 0
+        messagesFromStudents: 0,
+        videoCourses: 0 // 🚨 ADDED: Video courses notification count
       });
     }
   };
@@ -377,26 +383,65 @@ const App = () => {
     setShowSplash(true); 
   };
 
+  // FIXED: Enhanced destination selection with better error handling
   const handleSelectDestination = async (destinationId) => {
+    console.log('📍 Selecting destination:', destinationId);
     setCurrentPage('loading');
+    
     try {
-      const response = await api.get(`/courses/${destinationId}`);
-      if (response.data.success) {
+      // Try the new route first for better destination lookup
+      const response = await api.get(`/courses/destination/${destinationId}`);
+      
+      if (response.data.success && response.data.course) {
+        console.log('✅ Course found via destination route:', response.data.course.name);
         setSelectedCourse(response.data.course);
         setCurrentPage('destination-overview');
       } else {
+        console.log('❌ Course not found in response');
         setAlert({ type: 'error', message: 'Could not find course details.' });
         setCurrentPage('destinations');
       }
     } catch (error) {
-      console.error('Error fetching course:', error);
-      setAlert({ type: 'error', message: 'Failed to fetch course data.' });
-      setCurrentPage('destinations');
+      console.error('❌ Error with destination route, trying fallback:', error);
+      
+      // Fallback to the original route
+      try {
+        const fallbackResponse = await api.get(`/courses/${destinationId}`);
+        
+        if (fallbackResponse.data.success && fallbackResponse.data.course) {
+          console.log('✅ Course found via fallback route:', fallbackResponse.data.course.name);
+          setSelectedCourse(fallbackResponse.data.course);
+          setCurrentPage('destination-overview');
+        } else {
+          throw new Error('Course not found in fallback response');
+        }
+      } catch (fallbackError) {
+        console.error('❌ Both routes failed:', fallbackError);
+        
+        // More specific error handling
+        if (fallbackError.response?.status === 404) {
+          setAlert({ type: 'error', message: `Course "${destinationId}" not found. Please try another destination.` });
+        } else if (fallbackError.response?.status === 500) {
+          setAlert({ type: 'error', message: 'Server error while fetching course. Please try again.' });
+        } else {
+          setAlert({ type: 'error', message: 'Failed to fetch course data. Please check your connection.' });
+        }
+        
+        setCurrentPage('destinations');
+      }
     }
   };
 
+  // FIXED: Enhanced start course function
   const handleStartCourse = () => {
-    setCurrentPage('full-course-content');
+    if (selectedCourse) {
+      console.log('🚀 Starting course:', selectedCourse.name);
+      setCurrentPage('full-course-content');
+    } else {
+      console.error('❌ No course selected to start');
+      setAlert({ type: 'error', message: 'No course selected. Please select a course first.' });
+      setCurrentPage('destinations');
+    }
   };
 
   const handleQuizComplete = () => {
@@ -456,6 +501,14 @@ const App = () => {
       notificationKey: 'masterclassCourses',
       notification: notificationCounts.masterclassCourses,
       action: () => navigateTo('masterclass-courses')
+    },
+    // 🚨 ADDED: Video Courses for students
+    { 
+      name: "Video Courses", 
+      icon: "fas fa-video",
+      notificationKey: 'videoCourses',
+      notification: notificationCounts.videoCourses,
+      action: () => navigateTo('video-courses')
     },
     { 
       name: "Important Information", 
@@ -531,6 +584,12 @@ const App = () => {
       notificationKey: 'manageCourses',
       notification: notificationCounts.manageCourses,
       action: () => navigateTo('admin-manage-courses')
+    },
+    // 🚨 ADDED: Video Courses for admin
+    { 
+      name: "Video Courses", 
+      icon: "fas fa-video",
+      action: () => navigateTo('admin-video-courses')
     },
     { 
       name: "Send Information", 
@@ -733,6 +792,9 @@ const App = () => {
             {/* User Pages */}
             {currentPage === 'general-courses' && <GeneralCourses navigateTo={navigateTo} />}
             {currentPage === 'masterclass-courses' && <MasterclassCourses navigateTo={navigateTo} />}
+            {/* 🚨 ADDED: Video Pages */}
+            {currentPage === 'video-courses' && <VideoCourses navigateTo={navigateTo} />}
+            {currentPage === 'masterclass-videos' && <MasterclassVideos navigateTo={navigateTo} />}
             {currentPage === 'course-remarks' && <CourseAndRemarks />}
             {currentPage === 'contact-us' && <ContactUs />}
             {currentPage === 'admin-messages' && <MessageFromAdmin />}
@@ -746,6 +808,8 @@ const App = () => {
             {currentPage === 'admin-course-completed' && <AdminCourseCompleted />}
             {currentPage === 'admin-messages-from-students' && <MessageFromStudents />}
             {currentPage === 'admin-manage-courses' && <AdminManageCourses />}
+            {/* 🚨 ADDED: Admin Video Courses */}
+            {currentPage === 'admin-video-courses' && <AdminVideoCourses />}
             
             {/* Community Pages */}
             {currentPage === 'community' && userRole === 'admin' && <AdminCommunityTab />}

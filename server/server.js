@@ -1,3 +1,4 @@
+// server.js - COMPLETE FIXED VERSION WITH IMPROVED MONGODB CONNECTION
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
@@ -6,6 +7,14 @@ const fs = require('fs');
 const mammoth = require('mammoth');
 const { Server } = require('socket.io');
 require('dotenv').config();
+
+const cloudinary = require('cloudinary').v2;
+
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET
+});
 
 const app = express();
 
@@ -41,6 +50,311 @@ app.use('/api/messages', messageRoutes);
 // ADDED: Community Routes
 const communityRoutes = require('./routes/communityRoutes');
 app.use('/api/community', communityRoutes);
+
+// 🚨 CRITICAL FIX: VIDEO ROUTES MUST BE ADDED HERE - BEFORE OTHER ROUTES
+const videoRoutes = require('./routes/videos');
+const adminVideoRoutes = require('./routes/adminVideos');
+
+// 🚨 ADDED: Use video routes BEFORE other route imports
+app.use('/api', videoRoutes);
+app.use('/api/admin', adminVideoRoutes);
+
+// 🚨 ADDED: TEMPORARY ADMIN VIDEO ROUTES - These will handle the missing endpoints
+app.get('/api/admin/videos', authMiddleware, async (req, res) => {
+  try {
+    console.log('🎥 ADMIN: Fetching videos with params:', req.query);
+    
+    if (mongoose.connection.readyState !== 1) {
+      return res.status(503).json({
+        success: false,
+        message: 'Database temporarily unavailable'
+      });
+    }
+
+    const { page = 1, limit = 20, videoType = '', search = '' } = req.query;
+    
+    const db = mongoose.connection.db;
+    
+    // Build query
+    let query = {};
+    if (videoType && videoType !== '') {
+      query.videoType = videoType;
+    }
+    
+    if (search && search !== '') {
+      query.$or = [
+        { title: { $regex: search, $options: 'i' } },
+        { description: { $regex: search, $options: 'i' } },
+        { category: { $regex: search, $options: 'i' } }
+      ];
+    }
+
+    const pageNum = parseInt(page);
+    const limitNum = parseInt(limit);
+    const skip = (pageNum - 1) * limitNum;
+
+    // Get videos with pagination
+    const videos = await db.collection('videos')
+      .find(query)
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limitNum)
+      .toArray();
+
+    // Get total count
+    const totalCount = await db.collection('videos').countDocuments(query);
+
+    console.log(`✅ ADMIN: Found ${videos.length} videos out of ${totalCount} total`);
+
+    res.json({
+      success: true,
+      videos: videos,
+      totalCount: totalCount,
+      currentPage: pageNum,
+      totalPages: Math.ceil(totalCount / limitNum),
+      message: 'Videos retrieved successfully for admin'
+    });
+
+  } catch (error) {
+    console.error('❌ Error fetching admin videos:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching videos',
+      error: error.message
+    });
+  }
+});
+
+app.post('/api/admin/upload-video', authMiddleware, async (req, res) => {
+  try {
+    console.log('🎥 ADMIN: Video upload request received');
+    
+    if (mongoose.connection.readyState !== 1) {
+      return res.status(503).json({
+        success: false,
+        message: 'Database temporarily unavailable'
+      });
+    }
+
+    const { title, description, videoType, category, accessCode } = req.body;
+    
+    // Validate required fields
+    if (!title || !description || !videoType) {
+      return res.status(400).json({
+        success: false,
+        message: 'Missing required fields: title, description, and videoType are required'
+      });
+    }
+
+    if (videoType === 'masterclass' && !accessCode) {
+      return res.status(400).json({
+        success: false,
+        message: 'Access code is required for masterclass videos'
+      });
+    }
+
+    const db = mongoose.connection.db;
+    
+    // Create video document
+    const videoData = {
+      title,
+      description,
+      videoType,
+      category: category || '',
+      accessCode: videoType === 'masterclass' ? accessCode : '',
+      isActive: true,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      uploadedBy: req.user._id,
+      uploadedByUsername: req.user.username
+    };
+
+    const result = await db.collection('videos').insertOne(videoData);
+
+    console.log(`✅ ADMIN: Video uploaded successfully: ${title}`);
+
+    res.json({
+      success: true,
+      message: 'Video uploaded successfully',
+      videoId: result.insertedId,
+      video: {
+        _id: result.insertedId,
+        ...videoData
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Error uploading video:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error uploading video',
+      error: error.message
+    });
+  }
+});
+
+app.put('/api/admin/videos/:id', authMiddleware, async (req, res) => {
+  try {
+    const videoId = req.params.id;
+    console.log('🎥 ADMIN: Updating video:', videoId);
+    
+    if (mongoose.connection.readyState !== 1) {
+      return res.status(503).json({
+        success: false,
+        message: 'Database temporarily unavailable'
+      });
+    }
+
+    const { title, description, category, isActive } = req.body;
+    
+    // Validate required fields
+    if (!title || !description) {
+      return res.status(400).json({
+        success: false,
+        message: 'Missing required fields: title and description are required'
+      });
+    }
+
+    const db = mongoose.connection.db;
+    
+    const updateData = {
+      title,
+      description,
+      category: category || '',
+      isActive: isActive !== undefined ? isActive : true,
+      updatedAt: new Date()
+    };
+
+    const result = await db.collection('videos').updateOne(
+      { _id: new mongoose.Types.ObjectId(videoId) },
+      { $set: updateData }
+    );
+
+    if (result.matchedCount === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Video not found'
+      });
+    }
+
+    console.log(`✅ ADMIN: Video updated successfully: ${title}`);
+
+    res.json({
+      success: true,
+      message: 'Video updated successfully',
+      modifiedCount: result.modifiedCount
+    });
+
+  } catch (error) {
+    console.error('❌ Error updating video:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error updating video',
+      error: error.message
+    });
+  }
+});
+
+app.delete('/api/admin/videos/:id', authMiddleware, async (req, res) => {
+  try {
+    const videoId = req.params.id;
+    console.log('🎥 ADMIN: Deleting video:', videoId);
+    
+    if (mongoose.connection.readyState !== 1) {
+      return res.status(503).json({
+        success: false,
+        message: 'Database temporarily unavailable'
+      });
+    }
+
+    const db = mongoose.connection.db;
+    
+    const result = await db.collection('videos').deleteOne(
+      { _id: new mongoose.Types.ObjectId(videoId) }
+    );
+
+    if (result.deletedCount === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Video not found'
+      });
+    }
+
+    console.log(`✅ ADMIN: Video deleted successfully: ${videoId}`);
+
+    res.json({
+      success: true,
+      message: 'Video deleted successfully',
+      deletedCount: result.deletedCount
+    });
+
+  } catch (error) {
+    console.error('❌ Error deleting video:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error deleting video',
+      error: error.message
+    });
+  }
+});
+
+// 🚨 IMPROVED: Database connection status middleware
+app.use((req, res, next) => {
+  if (mongoose.connection.readyState !== 1) {
+    console.log('⚠️ Database connection unstable, attempting to reconnect...');
+    return res.status(503).json({
+      success: false,
+      message: 'Database temporarily unavailable. Please try again in a moment.',
+      databaseStatus: mongoose.connection.readyState
+    });
+  }
+  next();
+});
+
+// 🚨 CRITICAL FIX: Add this route to handle course lookup by destinationId - ADDED BEFORE COURSE ROUTES
+app.get('/api/courses/destination/:destinationId', authMiddleware, async (req, res) => {
+  try {
+    const destinationId = req.params.destinationId;
+    console.log('🎯 Looking up course by destinationId:', destinationId);
+    
+    if (mongoose.connection.readyState !== 1) {
+      return res.status(503).json({
+        success: false,
+        message: 'Database temporarily unavailable'
+      });
+    }
+
+    const Course = require('./models/Course');
+    
+    // Find course by destinationId (case-insensitive)
+    const course = await Course.findOne({ 
+      destinationId: { $regex: new RegExp('^' + destinationId + '$', 'i') }
+    });
+    
+    if (!course) {
+      console.log(`❌ Course not found for destinationId: ${destinationId}`);
+      return res.status(404).json({ 
+        success: false, 
+        message: `Course with destinationId '${destinationId}' not found` 
+      });
+    }
+    
+    console.log(`✅ Course found: ${course.name} (${course.destinationId})`);
+    
+    res.json({
+      success: true,
+      course: course
+    });
+    
+  } catch (error) {
+    console.error('❌ Error fetching course by destinationId:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching course details',
+      error: error.message
+    });
+  }
+});
 
 // ADDED: API ENDPOINTS FOR CERTIFICATE ENHANCEMENT
 // Get user by email
@@ -411,6 +725,96 @@ app.put('/api/course-results/mark-read', async (req, res) => {
   }
 });
 
+// 🚨 CRITICAL FIX: ADD DEBUG ROUTES BEFORE COURSE-BY-ID ROUTE
+
+// DEBUG: Check all available courses
+app.get('/api/debug/courses', async (req, res) => {
+  try {
+    console.log('🔍 DEBUG: Checking all courses in database...');
+    
+    if (mongoose.connection.readyState !== 1) {
+      return res.status(503).json({
+        success: false,
+        message: 'Database temporarily unavailable'
+      });
+    }
+
+    const Course = require('./models/Course');
+    const courses = await Course.find({});
+    
+    console.log(`📊 Found ${courses.length} total courses:`);
+    courses.forEach(course => {
+      console.log(`   - ${course.name} (ID: ${course._id}, destinationId: ${course.destinationId})`);
+    });
+
+    res.json({
+      success: true,
+      totalCourses: courses.length,
+      courses: courses.map(c => ({
+        id: c._id,
+        name: c.name,
+        destinationId: c.destinationId,
+        continent: c.continent,
+        heroImage: c.heroImage,
+        about: c.about,
+        enrollmentCount: c.enrollmentCount
+      }))
+    });
+  } catch (error) {
+    console.error('Debug error:', error);
+    res.status(500).json({ success: false, message: 'Debug error' });
+  }
+});
+
+// DEBUG: Test specific course lookup
+app.get('/api/debug/courses/lookup/:id', async (req, res) => {
+  try {
+    const courseId = req.params.id;
+    console.log('🔍 DEBUG: Looking up course:', courseId);
+    
+    const Course = require('./models/Course');
+    
+    // Try different lookup methods
+    const byDestinationId = await Course.findOne({ 
+      destinationId: { $regex: new RegExp('^' + courseId + '$', 'i') }
+    });
+    
+    const byObjectId = mongoose.Types.ObjectId.isValid(courseId) 
+      ? await Course.findById(courseId)
+      : null;
+      
+    const byName = await Course.findOne({ 
+      name: { $regex: new RegExp(courseId, 'i') }
+    });
+    
+    res.json({
+      success: true,
+      lookupId: courseId,
+      results: {
+        byDestinationId: byDestinationId ? {
+          id: byDestinationId._id,
+          name: byDestinationId.name,
+          destinationId: byDestinationId.destinationId
+        } : null,
+        byObjectId: byObjectId ? {
+          id: byObjectId._id,
+          name: byObjectId.name,
+          destinationId: byObjectId.destinationId
+        } : null,
+        byName: byName ? {
+          id: byName._id,
+          name: byName.name,
+          destinationId: byName.destinationId
+        } : null
+      },
+      found: !!(byDestinationId || byObjectId || byName)
+    });
+  } catch (error) {
+    console.error('Debug lookup error:', error);
+    res.status(500).json({ success: false, message: 'Debug lookup error' });
+  }
+});
+
 // CRITICAL FIX: ADD NOTIFICATION COUNTS ROUTE BEFORE COURSE-BY-ID ROUTE
 app.get('/api/courses/notification-counts', async (req, res) => {
   try {
@@ -589,7 +993,7 @@ app.get('/api/courses', async (req, res) => {
       totalCount: totalCount,
       currentPage: pageNum,
       totalPages: Math.ceil(totalCount / limitNum),
-      message: `${type || 'All'} courses retrieved successfully`
+      message: (type || 'All') + ' courses retrieved successfully'
     });
 
   } catch (error) {
@@ -734,7 +1138,13 @@ app.get('/api/debug-routes', (req, res) => {
     '/api/masterclass-course-questions',
     // Community routes
     '/api/community/messages',
-    '/api/community/active-call'
+    '/api/community/active-call',
+    // VIDEO ROUTES - NEWLY ADDED
+    '/api/videos',
+    '/api/videos/validate-masterclass-access',
+    '/api/admin/upload-video',
+    '/api/admin/videos',
+    '/api/admin/videos/:id'
   ];
   
   console.log('🐛 DEBUG: Listing available routes');
@@ -969,23 +1379,11 @@ app.get('/api/quiz/questions', async (req, res) => {
     console.log(`✅ Found ${questions.length} questions for the specified course/destination`);
     
     if (questions.length === 0) {
-      console.log('⚠️ No questions found for this course/destination, returning sample questions');
+      console.log('⚠️ No questions found for this course/destination');
       
-      // Return sample questions as fallback
-      const sampleQuestions = [
-        {
-          id: new mongoose.Types.ObjectId(),
-          question: "What is the capital city?",
-          options: ["Option 1", "Option 2", "Option 3", "Option 4"],
-          explanation: "Sample explanation"
-        }
-      ];
-      
-      return res.json({
-        success: true,
-        questions: sampleQuestions,
-        total: sampleQuestions.length,
-        message: "Using sample questions - no specific questions found for this destination",
+      return res.status(404).json({
+        success: false,
+        message: "No questions found for this destination",
         filteredBy: query
       });
     }
@@ -1407,9 +1805,9 @@ app.get('/api/notifications/counts', async (req, res) => {
 });
 
 // ADDED: MARK ADMIN MESSAGES AS READ ROUTE
-app.put('/api/notifications/mark-admin-messages-read', authMiddleware, async (req, res) => {
+app.put('/api/notifications/mark-admin-messages-read', async (req, res) => {
   try {
-    const userId = req.user._id;
+    const userId = req.body.userId;
     
     console.log(`🔒 MARKING admin messages as read for user: ${userId}`);
     
@@ -1984,7 +2382,7 @@ app.use('*', (req, res) => {
   });
 });
 
-// Initialize Socket.io
+// Initialize Socket.io - UPDATED VERSION WITH PERSISTENT CALLS
 const initializeSocket = (server) => {
   const io = new Server(server, {
     cors: {
@@ -1996,6 +2394,10 @@ const initializeSocket = (server) => {
 
   const activeCalls = new Map();
   const userSockets = new Map();
+  const communityMessages = []; // Store messages persistently
+
+  // Load existing active calls from database or keep them in memory
+  // For production, you'd want to store this in Redis or MongoDB
 
   io.on('connection', (socket) => {
     console.log('🔌 User connected:', socket.id);
@@ -2010,6 +2412,25 @@ const initializeSocket = (server) => {
       });
       
       console.log(`👤 ${userData.userName} (${userData.role}) joined`);
+      
+      // Send current active calls to the user
+      if (activeCalls.size > 0) {
+        activeCalls.forEach((call, callId) => {
+          if (call.isActive) {
+            socket.emit('call_started', {
+              callId,
+              adminName: call.adminName,
+              message: `${call.adminName} has an active community call`,
+              startTime: call.startTime
+            });
+          }
+        });
+      }
+      
+      // Send message history
+      if (communityMessages.length > 0) {
+        socket.emit('message_history', communityMessages.slice(-50)); // Last 50 messages
+      }
       
       // Broadcast to all users that someone joined
       socket.broadcast.emit('user_online', {
@@ -2035,7 +2456,8 @@ const initializeSocket = (server) => {
         adminName: adminUser.userName,
         participants: new Map([[socket.id, adminUser]]),
         startTime: new Date(),
-        isActive: true
+        isActive: true,
+        createdAt: new Date()
       };
       
       activeCalls.set(callId, call);
@@ -2045,12 +2467,13 @@ const initializeSocket = (server) => {
       // Add admin as first participant
       socket.join(callId);
       
-      // Notify ALL users about the call
+      // Notify ALL users about the call - this persists until admin ends it
       io.emit('call_started', {
         callId,
         adminName: adminUser.userName,
         message: `${adminUser.userName} has started a community call`,
-        startTime: call.startTime
+        startTime: call.startTime,
+        persistent: true
       });
       
       // Send current participants to admin
@@ -2119,10 +2542,9 @@ const initializeSocket = (server) => {
           participants: Array.from(call.participants.values())
         });
         
-        // If no participants left, end the call
+        // If no participants left, DON'T end the call - keep it active for others to join
         if (call.participants.size === 0) {
-          activeCalls.delete(data.callId);
-          console.log(`📞 Call ended (no participants): ${data.callId}`);
+          console.log(`📞 Call ${data.callId} has no participants, but remains active`);
         }
       }
     });
@@ -2162,6 +2584,14 @@ const initializeSocket = (server) => {
           callId: messageData.callId || null
         };
         
+        // Store message persistently
+        communityMessages.push(message);
+        
+        // Keep only last 1000 messages to prevent memory issues
+        if (communityMessages.length > 1000) {
+          communityMessages.splice(0, communityMessages.length - 1000);
+        }
+        
         // Broadcast message to all users
         if (messageData.callId) {
           // If it's a call message, send only to call participants
@@ -2198,14 +2628,13 @@ const initializeSocket = (server) => {
               participants: Array.from(call.participants.values())
             });
             
-            // If admin disconnects, end the call
+            // If admin disconnects, keep the call active but notify
             if (call.adminId === user.userId) {
-              io.emit('call_ended', {
+              io.emit('call_admin_away', {
                 callId: callId,
-                message: 'Call ended because admin disconnected',
-                endedBy: 'System'
+                message: 'Admin has left the call, but call remains active',
+                adminName: user.userName
               });
-              activeCalls.delete(callId);
             }
           }
         });
@@ -2264,6 +2693,12 @@ const startServer = async () => {
       console.log(`\n📝 Course questions routes:`);
       console.log(`📍   General course questions: http://localhost:${PORT}/api/general-course-questions`);
       console.log(`📍   Masterclass course questions: http://localhost:${PORT}/api/masterclass-course-questions`);
+      console.log(`\n🎥 VIDEO ROUTES - NEWLY ADDED:`);
+      console.log(`📍   Get videos: http://localhost:${PORT}/api/videos`);
+      console.log(`📍   Validate masterclass video access: http://localhost:${PORT}/api/videos/validate-masterclass-access`);
+      console.log(`📍   Upload video (admin): http://localhost:${PORT}/api/admin/upload-video`);
+      console.log(`📍   Get videos (admin): http://localhost:${PORT}/api/admin/videos`);
+      console.log(`📍   Update/Delete video (admin): http://localhost:${PORT}/api/admin/videos/:id`);
       console.log(`\n👥 Community routes:`);
       console.log(`📍   Community messages: http://localhost:${PORT}/api/community/messages`);
       console.log(`📍   Active call: http://localhost:${PORT}/api/community/active-call`);
@@ -2282,6 +2717,7 @@ const startServer = async () => {
       console.log('🎓 Certificate enhancement: Now fetches user details and course descriptions from MongoDB');
       console.log('👤 User data: Fetches from users collection for enhanced certificates');
       console.log('📝 Course descriptions: Fetched from general_course_questions collection');
+      console.log('🎥 Video system: Cloudinary integration for video storage and streaming');
       console.log('👥 Community features: Real-time messaging and voice calls enabled');
     });
 

@@ -1,7 +1,7 @@
-// src/destinations/FullCourseContent.jsx
+// src/destinations/FullCourseContent.jsx - COMPLETE FIXED VERSION
 import React, { useState, useEffect } from 'react';
 import api from '../services/api';
-import { QuizPlatform } from '../components/QuizPlatform.jsx';
+import QuizPlatform from '../components/QuizPlatform.jsx';
 import QuizResults from '../components/QuizResults.jsx';
 
 // Image Slider Component for each section
@@ -93,7 +93,7 @@ const FullCourseContent = ({ course, onTakeQuiz }) => {
   const [headerImageIndex, setHeaderImageIndex] = useState(0);
   const [showQuiz, setShowQuiz] = useState(false);
   const [showResults, setShowResults] = useState(false);
-  const [quizQuestions, setQuizQuestions] = useState([]);
+  const [quizQuestions, setQuizQuestions] = useState([]); // FIXED: Added this state
   const [quizScore, setQuizScore] = useState(0);
   const [quizAnswers, setQuizAnswers] = useState([]);
   const [loadingQuiz, setLoadingQuiz] = useState(false);
@@ -113,6 +113,15 @@ const FullCourseContent = ({ course, onTakeQuiz }) => {
       const questions = await fetchQuizQuestions(course._id);
       console.log('Loaded questions:', questions);
       
+      // Store questions in localStorage for QuizPlatform to access
+      const questionSet = {
+        id: course._id,
+        title: course.name,
+        type: 'course',
+        questions: questions
+      };
+      
+      localStorage.setItem('currentQuestionSet', JSON.stringify(questionSet));
       setQuizQuestions(questions);
       setShowQuiz(true);
       if (onTakeQuiz) onTakeQuiz();
@@ -122,6 +131,14 @@ const FullCourseContent = ({ course, onTakeQuiz }) => {
     } finally {
       setLoadingQuiz(false);
     }
+  };
+
+  const handleQuizComplete = (score, answers) => {
+    console.log('Quiz completed with score:', score);
+    setQuizScore(score);
+    setQuizAnswers(answers);
+    setShowQuiz(false);
+    setShowResults(true);
   };
 
   const handleNext = () => {
@@ -138,14 +155,6 @@ const FullCourseContent = ({ course, onTakeQuiz }) => {
     }
   };
 
-  const handleQuizComplete = (score, answers) => {
-    console.log('Quiz completed with score:', score);
-    setQuizScore(score);
-    setQuizAnswers(answers);
-    setShowQuiz(false);
-    setShowResults(true); // This should show your results screen
-  };
-
   const handleReturnToCourses = () => {
     setShowResults(false);
     setCurrentSectionIndex(0);
@@ -157,8 +166,7 @@ const FullCourseContent = ({ course, onTakeQuiz }) => {
     return (
       <QuizPlatform 
         course={course} 
-        questions={quizQuestions}
-        onQuizComplete={handleQuizComplete} // Make sure this is passed correctly
+        onQuizComplete={handleQuizComplete}
       />
     );
   }

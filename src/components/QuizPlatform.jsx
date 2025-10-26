@@ -1,4 +1,4 @@
-// src/components/QuizPlatform.jsx - FIXED VERSION WITHOUT ROUTER
+// src/components/QuizPlatform.jsx - COMPLETE FIXED VERSION
 import React, { useState, useEffect, useCallback } from 'react';
 import api from '../services/api';
 
@@ -119,6 +119,7 @@ const QuizPlatform = ({ course, onQuizComplete }) => {
     setShowResultsScreen(true);
   }, [score, answers.length, questions.length]);
 
+  // FIXED: Updated handleAnswer to include selectedOption
   const handleAnswer = (optionIndex) => {
     if (answerSubmitted || !currentQuestion) return;
     
@@ -134,13 +135,16 @@ const QuizPlatform = ({ course, onQuizComplete }) => {
       playWrongSound();
     }
 
+    // FIXED: Include BOTH selectedAnswer AND selectedOption for server compatibility
     const newAnswer = {
       questionId: currentQuestion.id,
       question: currentQuestion.question,
       selectedAnswer: optionIndex,
+      selectedOption: optionIndex, // REQUIRED BY SERVER VALIDATION
       correctAnswer: currentQuestion.correctAnswer,
       isCorrect: isCorrect,
-      explanation: currentQuestion.explanation
+      explanation: currentQuestion.explanation || '',
+      options: currentQuestion.options || [] // Include options for completeness
     };
     
     setAnswers(prev => [...prev, newAnswer]);
@@ -204,6 +208,7 @@ const QuizPlatform = ({ course, onQuizComplete }) => {
     return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
 
+  // FIXED: Updated handleSubmitQuiz with proper answer formatting
   const handleSubmitQuiz = async () => {
     if (!userName.trim()) {
       alert('Please enter your name before submitting.');
@@ -229,10 +234,21 @@ const QuizPlatform = ({ course, onQuizComplete }) => {
 
       // Determine course info based on source
       const courseName = currentQuestionSet?.title || course?.name || 'General Quiz';
-      const courseType = currentQuestionSet?.type || 'general';
+
+      // FIXED: Ensure ALL answers have the required selectedOption field
+      const formattedAnswers = answers.map((answer) => ({
+        questionId: answer.questionId,
+        question: answer.question,
+        selectedAnswer: answer.selectedAnswer,
+        selectedOption: answer.selectedOption || answer.selectedAnswer, // Ensure selectedOption exists
+        correctAnswer: answer.correctAnswer,
+        isCorrect: answer.isCorrect,
+        explanation: answer.explanation || '',
+        options: answer.options || []
+      }));
 
       const quizData = {
-        answers: answers,
+        answers: formattedAnswers, // Use the properly formatted answers
         userId: userId,
         userName: userName.trim(),
         courseId: currentQuestionSet?.id || course?._id,
@@ -245,7 +261,9 @@ const QuizPlatform = ({ course, onQuizComplete }) => {
         remark: getRemark(percentage),
         status: "completed",
         date: new Date().toISOString(),
-        submittedAt: new Date().toISOString()
+        submittedAt: new Date().toISOString(),
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
       };
 
       console.log('📤 Submitting quiz data:', quizData);
@@ -263,7 +281,7 @@ const QuizPlatform = ({ course, onQuizComplete }) => {
         // Navigate properly using onQuizComplete prop
         setTimeout(() => {
           if (onQuizComplete) {
-            onQuizComplete();
+            onQuizComplete(finalScore, answers);
           }
         }, 1000);
       } else {
@@ -275,7 +293,12 @@ const QuizPlatform = ({ course, onQuizComplete }) => {
       console.error('Error details:', error.response?.data || error.message);
       setSubmitting(false);
       
-      alert('Error submitting quiz. Please check console for details.');
+      // Show specific error message
+      if (error.response?.data?.error) {
+        alert('Validation Error: ' + error.response.data.error);
+      } else {
+        alert('Error submitting quiz. Please check console for details.');
+      }
     }
   };
 
@@ -788,6 +811,4 @@ const QuizPlatform = ({ course, onQuizComplete }) => {
   );
 };
 
-// 🚨 ADDED: Named export for compatibility
-export { QuizPlatform };
 export default QuizPlatform;

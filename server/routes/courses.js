@@ -1,4 +1,4 @@
-// routes/courses.js - FIXED VERSION WITH PROPER ROUTE ORDER
+// routes/courses.js - COMPLETE FIXED VERSION
 const express = require('express');
 const mongoose = require('mongoose');
 const DocumentCourse = require('../models/DocumentCourse');
@@ -26,10 +26,10 @@ const authMiddleware = async (req, res, next) => {
   }
 };
 
-// 🚨 CRITICAL: SPECIFIC ROUTES MUST COME BEFORE PARAMETERIZED ROUTES
+// 🚨 CRITICAL FIX: SPECIFIC ROUTES MUST COME BEFORE PARAMETERIZED ROUTES
 
 // Notification counts route - MUST BE FIRST
-router.get('/courses/notification-counts', authMiddleware, async (req, res) => {
+router.get('/notification-counts', authMiddleware, async (req, res) => {
   try {
     console.log('🔔 Fetching notification counts for user:', req.user._id);
     
@@ -85,7 +85,7 @@ router.get('/courses/notification-counts', authMiddleware, async (req, res) => {
 });
 
 // Masterclass Access Code Validation - MUST BE BEFORE :id
-router.post('/courses/validate-masterclass-access', authMiddleware, async (req, res) => {
+router.post('/validate-masterclass-access', authMiddleware, async (req, res) => {
   try {
     const { accessCode } = req.body;
     
@@ -128,7 +128,7 @@ router.post('/courses/validate-masterclass-access', authMiddleware, async (req, 
 });
 
 // Get destination courses list - MUST BE BEFORE :id
-router.get('/courses/destinations', authMiddleware, async (req, res) => {
+router.get('/destinations', authMiddleware, async (req, res) => {
   try {
     console.log('🌍 Fetching destination courses...');
     
@@ -151,7 +151,7 @@ router.get('/courses/destinations', authMiddleware, async (req, res) => {
 });
 
 // Get courses list - MUST BE BEFORE :id
-router.get('/courses', authMiddleware, async (req, res) => {
+router.get('/', authMiddleware, async (req, res) => {
   try {
     const { type, page = 1, limit = 10 } = req.query;
     const skip = (page - 1) * limit;
@@ -200,7 +200,7 @@ router.get('/courses', authMiddleware, async (req, res) => {
 });
 
 // 🚨 DEBUG ROUTES - MUST BE BEFORE :id
-router.get('/courses/debug/morocco', authMiddleware, async (req, res) => {
+router.get('/debug/morocco', authMiddleware, async (req, res) => {
   try {
     console.log('🔍 DEBUG: Checking Morocco course specifically...');
     
@@ -220,14 +220,14 @@ router.get('/courses/debug/morocco', authMiddleware, async (req, res) => {
 // 🚨 PARAMETERIZED ROUTES MUST COME LAST
 
 // Get single course by ID or destinationId - THIS COMES LAST
-router.get('/courses/:id', authMiddleware, async (req, res) => {
+router.get('/:id', authMiddleware, async (req, res) => {
   try {
     const courseId = req.params.id;
     
     console.log(`🔍 Looking for course with ID: ${courseId}`);
     
     // Skip if this is a special route that should have been caught earlier
-    if (['notification-counts', 'destinations', 'debug'].includes(courseId)) {
+    if (['notification-counts', 'destinations', 'debug', 'validate-masterclass-access'].includes(courseId)) {
       return res.status(404).json({ 
         success: false, 
         message: 'Course not found' 
@@ -236,39 +236,47 @@ router.get('/courses/:id', authMiddleware, async (req, res) => {
     
     let course = null;
     
-    // Simple case-insensitive search without isActive filter
+    // First try to find by destinationId (case-insensitive)
     course = await Course.findOne({ 
-      destinationId: { $regex: new RegExp(`^${courseId}$`, 'i') }
+      destinationId: { $regex: new RegExp('^' + courseId + '$', 'i') }
     });
     
-    console.log(`🔍 Course found:`, course ? `${course.name} (${course.destinationId})` : 'No');
+    console.log(`🔍 Course found by destinationId:`, course ? `${course.name} (${course.destinationId})` : 'No');
     
+    // If not found by destinationId, try by ObjectId
+    if (!course && mongoose.Types.ObjectId.isValid(courseId)) {
+      course = await Course.findById(courseId);
+      console.log(`🔍 Course found by ObjectId:`, course ? `${course.name}` : 'No');
+    }
+    
+    // If still not found, try by name (case-insensitive)
     if (!course) {
-      // Try ObjectId as fallback
-      if (mongoose.Types.ObjectId.isValid(courseId)) {
-        course = await Course.findById(courseId);
-      }
+      course = await Course.findOne({ 
+        name: { $regex: new RegExp(courseId, 'i') }
+      });
+      console.log(`🔍 Course found by name:`, course ? `${course.name}` : 'No');
     }
     
     if (!course) {
-      console.log(`❌ Course not found with ID: ${courseId}`);
+      console.log(`❌ Course not found with any method for ID: ${courseId}`);
       return res.status(404).json({ 
         success: false, 
         message: 'Course not found' 
       });
     }
     
-    console.log(`✅ SUCCESS: Course found: ${course.name}`);
+    console.log(`✅ SUCCESS: Course found: ${course.name} (${course.destinationId})`);
     
     res.json({ 
       success: true, 
       course
     });
   } catch (error) {
-    console.error('Error fetching course:', error);
+    console.error('❌ Error fetching course:', error);
     res.status(500).json({ 
       success: false, 
-      message: 'Error fetching course' 
+      message: 'Error fetching course details',
+      error: error.message 
     });
   }
 });

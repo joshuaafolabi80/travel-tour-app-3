@@ -1,4 +1,4 @@
-// src/services/api.js - UPDATED VERSION
+// src/services/api.js - COMPLETE FIXED VERSION
 import axios from 'axios';
 
 const API_BASE_URL = 'http://localhost:5000/api';
@@ -15,7 +15,7 @@ const api = axios.create({
 api.interceptors.request.use(
   (config) => {
     const token = localStorage.getItem('authToken');
-    console.log('🔐 Using token:', token ? 'Yes' : 'No');
+    console.log('🔐 API Request:', config.method?.toUpperCase(), config.url);
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
@@ -27,18 +27,22 @@ api.interceptors.request.use(
   }
 );
 
-// Enhanced response interceptor
+// Enhanced response interceptor with better error handling
 api.interceptors.response.use(
   (response) => {
-    console.log('✅ API Response:', response.config.url, response.status);
+    console.log('✅ API Response:', response.status, response.config.url);
     return response;
   },
   (error) => {
-    console.error('🚨 API Error:', {
+    const errorDetails = {
       url: error.config?.url,
+      method: error.config?.method?.toUpperCase(),
       status: error.response?.status,
-      message: error.response?.data?.message || error.message
-    });
+      message: error.response?.data?.message || error.message,
+      data: error.response?.data
+    };
+    
+    console.error('🚨 API Error:', errorDetails);
     
     if (error.response?.status === 401) {
       console.log('🔒 Unauthorized - clearing tokens');
@@ -50,6 +54,14 @@ api.interceptors.response.use(
     
     if (error.response?.status === 403) {
       console.log('🚫 Forbidden - insufficient permissions');
+    }
+    
+    if (error.response?.status === 404) {
+      console.log('🔍 Resource not found');
+    }
+    
+    if (error.response?.status === 500) {
+      console.log('💥 Server error - check server logs');
     }
     
     return Promise.reject(error);
