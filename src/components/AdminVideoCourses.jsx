@@ -21,6 +21,13 @@ const AdminVideoCourses = () => {
   const [itemsPerPage, setItemsPerPage] = useState(20);
   const [totalItems, setTotalItems] = useState(0);
   
+  // Video counts state
+  const [videoCounts, setVideoCounts] = useState({
+    totalVideos: 0,
+    generalVideos: 0,
+    masterclassVideos: 0
+  });
+  
   // Upload form state
   const [uploadForm, setUploadForm] = useState({
     title: '',
@@ -44,8 +51,18 @@ const AdminVideoCourses = () => {
   const [alertMessage, setAlertMessage] = useState('');
   const [alertType, setAlertType] = useState('success');
 
+  // 🚨 ADDED: Function to trigger global updates for navigation
+  const triggerGlobalVideoCountUpdate = () => {
+    // Dispatch event to update App.jsx navigation counts
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new Event('videoCountsUpdated'));
+      console.log('🔄 Triggered global video count update');
+    }
+  };
+
   // Effects
   useEffect(() => {
+    fetchVideoCounts();
     if (activeTab === 'view-videos') {
       fetchVideos();
     }
@@ -63,6 +80,27 @@ const AdminVideoCourses = () => {
     setTimeout(() => {
       setShowAlert(false);
     }, 3000);
+  };
+
+  const fetchVideoCounts = async () => {
+    try {
+      console.log('📊 ADMIN: Fetching video counts...');
+      
+      const response = await api.get('/admin/videos/count');
+      
+      if (response.data.success) {
+        setVideoCounts({
+          totalVideos: response.data.totalVideos || 0,
+          generalVideos: response.data.generalVideos || 0,
+          masterclassVideos: response.data.masterclassVideos || 0
+        });
+        console.log('✅ ADMIN Video counts loaded:', response.data);
+      } else {
+        console.warn('⚠️ ADMIN: Failed to load video counts:', response.data.message);
+      }
+    } catch (error) {
+      console.error('❌ ADMIN: Error fetching video counts:', error);
+    }
   };
 
   const filterVideos = () => {
@@ -90,14 +128,12 @@ const AdminVideoCourses = () => {
       setLoading(true);
       setError('');
       
-      // Use the correct endpoint - /api/videos for admin access
-      const response = await api.get('/videos', {
+      const response = await api.get('/admin/videos', {
         params: {
           page: currentPage,
           limit: itemsPerPage,
-          type: videoTypeFilter || '',
-          search: searchTerm,
-          admin: true // Add admin flag to indicate admin access
+          videoType: videoTypeFilter || '',
+          search: searchTerm
         }
       });
       
@@ -136,6 +172,7 @@ const AdminVideoCourses = () => {
     }
   };
 
+  // FIXED: handleUpload function with INCREASED TIMEOUT and GLOBAL UPDATES
   const handleUpload = async () => {
     if (!uploadForm.title.trim() || !uploadForm.description.trim() || !selectedFile) {
       showCustomAlert('Please fill all fields and select a video file', 'error');
@@ -151,34 +188,75 @@ const AdminVideoCourses = () => {
     
     try {
       const formData = new FormData();
-      formData.append('title', uploadForm.title);
-      formData.append('description', uploadForm.description);
+      
+      // Append all fields with proper values
+      formData.append('title', uploadForm.title.trim());
+      formData.append('description', uploadForm.description.trim());
       formData.append('videoType', uploadForm.videoType);
-      formData.append('category', uploadForm.category);
-      formData.append('accessCode', uploadForm.accessCode);
+      formData.append('category', uploadForm.category.trim());
+      formData.append('accessCode', uploadForm.accessCode.trim());
       formData.append('videoFile', selectedFile);
 
-      // Use the correct endpoint for video upload
+      // Log FormData contents for debugging
+      console.log('📤 Uploading video with data:', {
+        title: uploadForm.title,
+        description: uploadForm.description,
+        videoType: uploadForm.videoType,
+        category: uploadForm.category,
+        accessCode: uploadForm.accessCode,
+        fileName: selectedFile.name,
+        fileSize: selectedFile.size,
+        fileType: selectedFile.type
+      });
+
+      // Log FormData entries to verify they're being set
+      for (let [key, value] of formData.entries()) {
+        if (key !== 'videoFile') {
+          console.log(`📝 FormData: ${key} =`, value);
+        } else {
+          console.log(`📝 FormData: ${key} =`, value.name, `(File: ${value.size} bytes)`);
+        }
+      }
+
+      // FIX: INCREASED TIMEOUT for large video uploads
       const response = await api.post('/admin/upload-video', formData, {
         headers: {
           'Content-Type': 'multipart/form-data'
-        }
+        },
+        timeout: 120000 // INCREASED TO 2 MINUTES for large files
       });
 
       if (response.data.success) {
         showCustomAlert(`Video uploaded successfully!`, 'success');
         setShowUploadModal(false);
         resetUploadForm();
-        // Refresh videos if on view tab
+        // Refresh video counts and videos if on view tab
+        await fetchVideoCounts();
         if (activeTab === 'view-videos') {
           fetchVideos();
         }
+        // 🚨 ADDED: Trigger global update for navigation
+        triggerGlobalVideoCountUpdate();
       } else {
         showCustomAlert('Failed to upload video. Please try again.', 'error');
       }
     } catch (error) {
       console.error('Error uploading video:', error);
-      showCustomAlert('Failed to upload video. Please try again.', 'error');
+      
+      // More detailed error handling
+      if (error.response) {
+        // Server responded with error status
+        console.error('Server response error:', error.response.data);
+        showCustomAlert(`Upload failed: ${error.response.data.message || 'Server error'}`, 'error');
+      } else if (error.request) {
+        // Request was made but no response received
+        console.error('No response received:', error.request);
+        showCustomAlert('Upload failed: Server is taking too long to process. This is normal for large videos. Please wait a moment and check if the video was uploaded.', 'error');
+      } else {
+        // Something else happened
+        console.error('Error message:', error.message);
+        showCustomAlert(`Upload failed: ${error.message}`, 'error');
+      }
     }
     
     setUploading(false);
@@ -191,13 +269,15 @@ const AdminVideoCourses = () => {
     }
 
     try {
-      // Use the correct endpoint for updating videos
       const response = await api.put(`/admin/videos/${selectedVideo._id}`, editForm);
       
       if (response.data.success) {
         showCustomAlert('Video updated successfully!', 'success');
         setShowEditModal(false);
         fetchVideos();
+        fetchVideoCounts(); // Refresh counts after edit
+        // 🚨 ADDED: Trigger global update for navigation
+        triggerGlobalVideoCountUpdate();
       } else {
         showCustomAlert('Failed to update video. Please try again.', 'error');
       }
@@ -209,13 +289,15 @@ const AdminVideoCourses = () => {
 
   const handleDelete = async () => {
     try {
-      // Use the correct endpoint for deleting videos
       const response = await api.delete(`/admin/videos/${selectedVideo._id}`);
       
       if (response.data.success) {
         showCustomAlert('Video deleted successfully!', 'success');
         setShowDeleteModal(false);
         fetchVideos();
+        fetchVideoCounts(); // Refresh counts after delete
+        // 🚨 ADDED: Trigger global update for navigation
+        triggerGlobalVideoCountUpdate();
       } else {
         showCustomAlert('Failed to delete video. Please try again.', 'error');
       }
@@ -412,7 +494,7 @@ const AdminVideoCourses = () => {
                   </div>
                   <div className="col-md-4 text-md-end">
                     <div className="bg-white rounded p-3 d-inline-block" style={{color: '#28a745'}}>
-                      <h4 className="mb-0 fw-bold">{totalItems}</h4>
+                      <h4 className="mb-0 fw-bold">{videoCounts.totalVideos}</h4>
                       <small>Total Videos</small>
                     </div>
                   </div>
@@ -422,7 +504,7 @@ const AdminVideoCourses = () => {
           </div>
         </div>
 
-        {/* Tab Navigation */}
+        {/* Tab Navigation - UPDATED WITH UNIFORM BADGES */}
         <div className="row mb-4">
           <div className="col-12">
             <div className="card shadow-sm border-0">
@@ -434,6 +516,7 @@ const AdminVideoCourses = () => {
                       onClick={() => setActiveTab('upload-general')}
                     >
                       <i className="fas fa-upload me-2"></i>Upload General Videos
+                      <span className="badge bg-success ms-2">{videoCounts.generalVideos}</span>
                     </button>
                   </li>
                   <li className="nav-item" role="presentation">
@@ -442,6 +525,7 @@ const AdminVideoCourses = () => {
                       onClick={() => setActiveTab('upload-masterclass')}
                     >
                       <i className="fas fa-crown me-2"></i>Upload Masterclass Videos
+                      <span className="badge bg-warning ms-2">{videoCounts.masterclassVideos}</span>
                     </button>
                   </li>
                   <li className="nav-item" role="presentation">
@@ -450,6 +534,7 @@ const AdminVideoCourses = () => {
                       onClick={() => setActiveTab('view-videos')}
                     >
                       <i className="fas fa-list me-2"></i>View/Edit/Delete Videos
+                      <span className="badge bg-primary ms-2">{videoCounts.totalVideos}</span>
                     </button>
                   </li>
                 </ul>
@@ -532,7 +617,25 @@ const AdminVideoCourses = () => {
                             <li>Users will see notification badges</li>
                             <li>Upload MP4, MOV, AVI, MKV, or WEBM files</li>
                             <li>Maximum file size: 500MB</li>
+                            <li>Large videos may take several minutes to upload</li>
                           </ul>
+                        </div>
+                        <div className="card border-success">
+                          <div className="card-header bg-success text-white">
+                            <i className="fas fa-chart-bar me-2"></i>
+                            Video Statistics
+                          </div>
+                          <div className="card-body">
+                            <p className="mb-1">
+                              <strong>General Videos:</strong> {videoCounts.generalVideos}
+                            </p>
+                            <p className="mb-1">
+                              <strong>Masterclass Videos:</strong> {videoCounts.masterclassVideos}
+                            </p>
+                            <p className="mb-0">
+                              <strong>Total Videos:</strong> {videoCounts.totalVideos}
+                            </p>
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -619,7 +722,25 @@ const AdminVideoCourses = () => {
                             <li>Generate additional codes as needed</li>
                             <li>Premium content for authorized users</li>
                             <li>Same access codes as masterclass courses</li>
+                            <li>Large videos may take several minutes to upload</li>
                           </ul>
+                        </div>
+                        <div className="card border-warning">
+                          <div className="card-header bg-warning text-dark">
+                            <i className="fas fa-chart-bar me-2"></i>
+                            Video Statistics
+                          </div>
+                          <div className="card-body">
+                            <p className="mb-1">
+                              <strong>General Videos:</strong> {videoCounts.generalVideos}
+                            </p>
+                            <p className="mb-1">
+                              <strong>Masterclass Videos:</strong> {videoCounts.masterclassVideos}
+                            </p>
+                            <p className="mb-0">
+                              <strong>Total Videos:</strong> {videoCounts.totalVideos}
+                            </p>
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -798,15 +919,18 @@ const AdminVideoCourses = () => {
                   <p><strong>Title:</strong> {uploadForm.title}</p>
                   <p><strong>Type:</strong> {uploadForm.videoType}</p>
                   <p><strong>Category:</strong> {uploadForm.category}</p>
-                  <p><strong>File:</strong> {selectedFile?.name}</p>
+                  <p><strong>File:</strong> {selectedFile?.name} ({Math.round(selectedFile?.size / (1024 * 1024))}MB)</p>
                   {uploadForm.videoType === 'masterclass' && (
                     <p><strong>Access Code:</strong> {uploadForm.accessCode}</p>
                   )}
                 </div>
-                <p className="text-muted">
-                  This video will be immediately available to users. 
-                  {uploadForm.videoType === 'masterclass' && ' Users will need the access code to view the content.'}
-                </p>
+                <div className="alert alert-warning">
+                  <h6><i className="fas fa-clock me-2"></i>Upload Time</h6>
+                  <p className="mb-0">
+                    This {Math.round(selectedFile?.size / (1024 * 1024))}MB video may take several minutes to upload. 
+                    Please do not close this window until the upload is complete.
+                  </p>
+                </div>
               </div>
               <div className="modal-footer">
                 <button
@@ -826,12 +950,12 @@ const AdminVideoCourses = () => {
                   {uploading ? (
                     <>
                       <span className="spinner-border spinner-border-sm me-2" role="status"></span>
-                      Uploading...
+                      Uploading... (This may take several minutes)
                     </>
                   ) : (
                     <>
                       <i className="fas fa-upload me-2"></i>
-                      Confirm Upload
+                      Start Upload
                     </>
                   )}
                 </button>

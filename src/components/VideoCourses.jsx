@@ -8,10 +8,60 @@ const VideoCourses = ({ navigateTo }) => {
   const [activeTab, setActiveTab] = useState('general');
   const [selectedVideo, setSelectedVideo] = useState(null);
   const [showVideoModal, setShowVideoModal] = useState(false);
+  const [videoCounts, setVideoCounts] = useState({
+    generalVideos: 0,
+    masterclassVideos: 0
+  });
+
+  // 🚨 ADDED: Function to trigger global updates for navigation
+  const triggerGlobalVideoCountUpdate = () => {
+    // Dispatch event to update App.jsx navigation counts
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new Event('videoCountsUpdated'));
+      console.log('🔄 Triggered global video count update from VideoCourses');
+    }
+  };
 
   useEffect(() => {
+    fetchVideoCounts();
     fetchVideos();
+    
+    // 🚨 ADDED: Listen for video count updates from admin
+    const handleVideoCountsUpdate = () => {
+      console.log('🔄 VideoCourses: Received video count update event');
+      fetchVideoCounts();
+    };
+
+    window.addEventListener('videoCountsUpdated', handleVideoCountsUpdate);
+    
+    return () => {
+      window.removeEventListener('videoCountsUpdated', handleVideoCountsUpdate);
+    };
   }, [activeTab]);
+
+  const fetchVideoCounts = async () => {
+    try {
+      console.log('📊 Fetching video counts for badges...');
+      
+      const response = await api.get('/videos/count');
+      
+      if (response.data.success) {
+        setVideoCounts({
+          generalVideos: response.data.generalVideos || 0,
+          masterclassVideos: response.data.masterclassVideos || 0
+        });
+        console.log('✅ Video counts loaded:', response.data);
+        
+        // 🚨 ADDED: Trigger global update to ensure App.jsx has latest counts
+        triggerGlobalVideoCountUpdate();
+      } else {
+        console.warn('⚠️ Failed to load video counts:', response.data.message);
+      }
+    } catch (error) {
+      console.error('❌ Error fetching video counts:', error);
+      // Don't set error state here - we can still show the page
+    }
+  };
 
   const fetchVideos = async () => {
     try {
@@ -126,8 +176,8 @@ const VideoCourses = ({ navigateTo }) => {
                   </div>
                   <div className="col-md-4 text-md-end">
                     <div className="bg-white rounded p-3 d-inline-block text-success">
-                      <h4 className="mb-0 fw-bold">{videos.length}</h4>
-                      <small>Total Videos</small>
+                      <h4 className="mb-0 fw-bold">{videoCounts.generalVideos + videoCounts.masterclassVideos}</h4>
+                      <small>Total Videos Available</small>
                     </div>
                   </div>
                 </div>
@@ -136,7 +186,7 @@ const VideoCourses = ({ navigateTo }) => {
           </div>
         </div>
 
-        {/* Tab Navigation */}
+        {/* Tab Navigation - UPDATED WITH UNIFORM BADGES */}
         <div className="row mb-4">
           <div className="col-12">
             <div className="card shadow-sm border-0">
@@ -148,7 +198,7 @@ const VideoCourses = ({ navigateTo }) => {
                       onClick={() => setActiveTab('general')}
                     >
                       <i className="fas fa-video me-2"></i>General Videos
-                      <span className="badge bg-success ms-2">{videos.length}</span>
+                      <span className="badge bg-success ms-2">{videoCounts.generalVideos}</span>
                     </button>
                   </li>
                   <li className="nav-item">
@@ -157,7 +207,7 @@ const VideoCourses = ({ navigateTo }) => {
                       onClick={handleMasterclassVideosTab}
                     >
                       <i className="fas fa-crown me-2"></i>Masterclass Videos
-                      <span className="badge bg-warning ms-2">0</span>
+                      <span className="badge bg-warning ms-2">{videoCounts.masterclassVideos}</span>
                     </button>
                   </li>
                 </ul>

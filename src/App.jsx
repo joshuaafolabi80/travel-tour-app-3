@@ -135,7 +135,9 @@ const App = () => {
     courseCompleted: 0,
     manageCourses: 0,
     messagesFromStudents: 0,
-    videoCourses: 0 // 🚨 ADDED: Video courses notification count
+    videoCourses: 0, // 🚨 ADDED: Video courses notification count
+    generalVideos: 0, // 🚨 ADDED: General videos count
+    masterclassVideos: 0 // 🚨 ADDED: Masterclass videos count
   });
 
   const validateToken = (token) => {
@@ -162,6 +164,21 @@ const App = () => {
         const oneHour = 60 * 60 * 1000;
         
         const updatedCounts = { ...response.data.counts };
+
+        // 🚨 ADDED: Fetch video counts for both students and admin
+        try {
+          const videoCountsResponse = await api.get('/videos/count');
+          if (videoCountsResponse.data.success) {
+            updatedCounts.generalVideos = videoCountsResponse.data.generalVideos || 0;
+            updatedCounts.masterclassVideos = videoCountsResponse.data.masterclassVideos || 0;
+            updatedCounts.videoCourses = updatedCounts.generalVideos + updatedCounts.masterclassVideos;
+          }
+        } catch (videoError) {
+          console.error('Error fetching video counts:', videoError);
+          updatedCounts.generalVideos = 0;
+          updatedCounts.masterclassVideos = 0;
+          updatedCounts.videoCourses = 0;
+        }
 
         if (userRole === 'student') {
           try {
@@ -212,7 +229,9 @@ const App = () => {
         quizCompleted: 0,
         courseCompleted: 0,
         messagesFromStudents: 0,
-        videoCourses: 0 // 🚨 ADDED: Video courses notification count
+        videoCourses: 0,
+        generalVideos: 0,
+        masterclassVideos: 0
       });
     }
   };
@@ -292,6 +311,19 @@ const App = () => {
     }
     return () => clearInterval(interval);
   }, [isLoggedIn, userData, userRole]);
+
+  // 🚨 ADDED: Listen for video count updates
+  useEffect(() => {
+    const handleVideoCountsUpdate = () => {
+      fetchNotificationCounts();
+    };
+
+    window.addEventListener('videoCountsUpdated', handleVideoCountsUpdate);
+    
+    return () => {
+      window.removeEventListener('videoCountsUpdated', handleVideoCountsUpdate);
+    };
+  }, []);
 
   const handleStartClick = () => {
     setShowSplash(false);
@@ -502,7 +534,7 @@ const App = () => {
       notification: notificationCounts.masterclassCourses,
       action: () => navigateTo('masterclass-courses')
     },
-    // 🚨 ADDED: Video Courses for students
+    // 🚨 UPDATED: Video Courses with superscript count
     { 
       name: "Video Courses", 
       icon: "fas fa-video",
@@ -585,10 +617,12 @@ const App = () => {
       notification: notificationCounts.manageCourses,
       action: () => navigateTo('admin-manage-courses')
     },
-    // 🚨 ADDED: Video Courses for admin
+    // 🚨 UPDATED: Video Courses for admin with total video count
     { 
       name: "Video Courses", 
       icon: "fas fa-video",
+      notificationKey: 'videoCourses',
+      notification: notificationCounts.videoCourses,
       action: () => navigateTo('admin-video-courses')
     },
     { 
@@ -707,7 +741,15 @@ const App = () => {
         </div>
       ) : isLoggedIn ? (
         <div className="main-app-content">
+          {/* FIXED HEADER WITH MULTI-ROW NAVIGATION */}
           <header className="app-header">
+            <div className="header-logo-container">
+              <img 
+                src="https://res.cloudinary.com/dnc3s4u7q/image/upload/v1760389693/conclave_logo_ygplob.jpg" 
+                alt="The Conclave Academy Logo" 
+                className="header-logo" 
+              />
+            </div>
             <button className="hamburger-menu-icon" onClick={toggleMenu}>
               <i className="fas fa-bars"></i>
             </button>
@@ -724,9 +766,6 @@ const App = () => {
                   {item.notification !== undefined && renderNotificationBadge(item.notification)}
                 </button>
               ))}
-            </div>
-            <div className="header-logo-container">
-              <img src="https://placehold.co/120x40/ff6f00/ffffff?text=TCTTTA" alt="Logo" className="header-logo" />
             </div>
             <div className="header-right-spacer"></div>
           </header>

@@ -1,4 +1,4 @@
-// server.js - COMPLETE FIXED VERSION WITH IMPROVED MONGODB CONNECTION
+// server.js - COMPLETE FIXED VERSION WITH LARGE VIDEO UPLOAD SUPPORT
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
@@ -6,6 +6,7 @@ const path = require('path');
 const fs = require('fs');
 const mammoth = require('mammoth');
 const { Server } = require('socket.io');
+const multer = require('multer');
 require('dotenv').config();
 
 const cloudinary = require('cloudinary').v2;
@@ -18,13 +19,13 @@ cloudinary.config({
 
 const app = express();
 
-// Middleware
+// Middleware - INCREASED LIMITS FOR LARGE VIDEOS
 app.use(cors({
   origin: ['http://localhost:5173', 'http://localhost:5174'],
   credentials: true
 }));
-app.use(express.json({ limit: '50mb' }));
-app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+app.use(express.json({ limit: '500mb' })); // Increased for large videos
+app.use(express.urlencoded({ extended: true, limit: '500mb' }));
 
 // ENHANCED REQUEST LOGGING MIDDLEWARE
 app.use((req, res, next) => {
@@ -50,6 +51,149 @@ app.use('/api/messages', messageRoutes);
 // ADDED: Community Routes
 const communityRoutes = require('./routes/communityRoutes');
 app.use('/api/community', communityRoutes);
+
+// 🚨 CRITICAL FIX: Configure multer for LARGE file uploads
+const storage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    const uploadDir = path.join(__dirname, 'uploads', 'videos');
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true });
+    }
+    cb(null, uploadDir);
+  },
+  filename: function (req, file, cb) {
+    // Generate unique filename
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    cb(null, 'video-' + uniqueSuffix + path.extname(file.originalname));
+  }
+});
+
+const upload = multer({ 
+  storage: storage,
+  limits: {
+    fileSize: 2 * 1024 * 1024 * 1024, // 2GB limit for 30-minute videos
+    fieldSize: 50 * 1024 * 1024 // 50MB for fields
+  },
+  fileFilter: function (req, file, cb) {
+    // Check if file is a video
+    if (file.mimetype.startsWith('video/')) {
+      console.log(`✅ Accepting video file: ${file.originalname} (${(file.size / (1024 * 1024)).toFixed(2)}MB)`);
+      cb(null, true);
+    } else {
+      console.log(`❌ Rejecting non-video file: ${file.mimetype}`);
+      cb(new Error('Only video files are allowed!'), false);
+    }
+  }
+});
+
+// 🚨 ADD: Video count endpoints for notifications - ADD BEFORE OTHER VIDEO ROUTES
+app.get('/api/videos/count', async (req, res) => {
+  try {
+    console.log('📊 Fetching video counts for notifications');
+    
+    if (mongoose.connection.readyState !== 1) {
+      return res.status(503).json({
+        success: false,
+        message: 'Database temporarily unavailable'
+      });
+    }
+
+    const db = mongoose.connection.db;
+    
+    // Count general videos
+    const generalVideosCount = await db.collection('videos').countDocuments({ 
+      videoType: 'general',
+      isActive: true 
+    });
+    
+    // Count masterclass videos  
+    const masterclassVideosCount = await db.collection('videos').countDocuments({ 
+      videoType: 'masterclass',
+      isActive: true 
+    });
+
+    console.log(`✅ Video counts - General: ${generalVideosCount}, Masterclass: ${masterclassVideosCount}`);
+
+    res.json({
+      success: true,
+      counts: {
+        generalVideos: generalVideosCount,
+        masterclassVideos: masterclassVideosCount
+      },
+      generalVideos: generalVideosCount,
+      masterclassVideos: masterclassVideosCount,
+      message: 'Video counts retrieved successfully'
+    });
+
+  } catch (error) {
+    console.error('❌ Error fetching video counts:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching video counts',
+      error: error.message,
+      counts: {
+        generalVideos: 0,
+        masterclassVideos: 0
+      }
+    });
+  }
+});
+
+// 🚨 ADD: Admin video count endpoint
+app.get('/api/admin/videos/count', authMiddleware, async (req, res) => {
+  try {
+    console.log('📊 ADMIN: Fetching video counts');
+    
+    if (mongoose.connection.readyState !== 1) {
+      return res.status(503).json({
+        success: false,
+        message: 'Database temporarily unavailable'
+      });
+    }
+
+    const db = mongoose.connection.db;
+    
+    // Count all videos (admin sees all)
+    const totalVideosCount = await db.collection('videos').countDocuments({});
+    
+    // Count by type
+    const generalVideosCount = await db.collection('videos').countDocuments({ 
+      videoType: 'general'
+    });
+    
+    const masterclassVideosCount = await db.collection('videos').countDocuments({ 
+      videoType: 'masterclass'
+    });
+
+    console.log(`✅ ADMIN Video counts - Total: ${totalVideosCount}, General: ${generalVideosCount}, Masterclass: ${masterclassVideosCount}`);
+
+    res.json({
+      success: true,
+      counts: {
+        totalVideos: totalVideosCount,
+        generalVideos: generalVideosCount,
+        masterclassVideos: masterclassVideosCount
+      },
+      totalVideos: totalVideosCount,
+      generalVideos: generalVideosCount,
+      masterclassVideos: masterclassVideosCount,
+      message: 'Admin video counts retrieved successfully'
+    });
+
+  } catch (error) {
+    console.error('❌ Error fetching admin video counts:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching video counts',
+      error: error.message,
+      counts: {
+        totalVideos: 0,
+        generalVideos: 0,
+        masterclassVideos: 0
+      }
+    });
+  }
+});
 
 // 🚨 CRITICAL FIX: VIDEO ROUTES MUST BE ADDED HERE - BEFORE OTHER ROUTES
 const videoRoutes = require('./routes/videos');
@@ -125,10 +269,14 @@ app.get('/api/admin/videos', authMiddleware, async (req, res) => {
   }
 });
 
-app.post('/api/admin/upload-video', authMiddleware, async (req, res) => {
+// 🚨 CRITICAL FIX: /api/admin/upload-video route WITH LARGE FILE SUPPORT
+app.post('/api/admin/upload-video', authMiddleware, upload.single('videoFile'), async (req, res) => {
+  console.log('🎥 ADMIN: Video upload request received - STARTING UPLOAD PROCESS');
+  
+  // Set longer timeout for large video uploads (10 minutes)
+  req.setTimeout(10 * 60 * 1000); // 10 minutes
+  
   try {
-    console.log('🎥 ADMIN: Video upload request received');
-    
     if (mongoose.connection.readyState !== 1) {
       return res.status(503).json({
         success: false,
@@ -136,13 +284,33 @@ app.post('/api/admin/upload-video', authMiddleware, async (req, res) => {
       });
     }
 
+    // Log the received data
+    console.log('📦 Request body fields received:', req.body);
+    console.log('📦 Uploaded file info:', req.file ? {
+      originalname: req.file.originalname,
+      size: `${(req.file.size / (1024 * 1024)).toFixed(2)}MB`,
+      mimetype: req.file.mimetype,
+      path: req.file.path
+    } : 'No file received');
+
+    // Extract fields from form data - multer puts them in req.body
     const { title, description, videoType, category, accessCode } = req.body;
     
     // Validate required fields
     if (!title || !description || !videoType) {
+      console.log('❌ Missing required fields:', { 
+        title: !!title, 
+        description: !!description, 
+        videoType: !!videoType 
+      });
       return res.status(400).json({
         success: false,
-        message: 'Missing required fields: title, description, and videoType are required'
+        message: 'Missing required fields: title, description, and videoType are required',
+        received: {
+          title: title || 'missing',
+          description: description || 'missing', 
+          videoType: videoType || 'missing'
+        }
       });
     }
 
@@ -153,25 +321,132 @@ app.post('/api/admin/upload-video', authMiddleware, async (req, res) => {
       });
     }
 
+    if (!req.file) {
+      return res.status(400).json({
+        success: false,
+        message: 'No video file uploaded'
+      });
+    }
+
     const db = mongoose.connection.db;
     
+    // Handle file upload to Cloudinary if file was uploaded
+    let videoUrl = '';
+    let thumbnailUrl = '';
+    let cloudinaryPublicId = '';
+    
+    console.log(`☁️ Starting Cloudinary upload for: ${req.file.originalname} (${(req.file.size / (1024 * 1024)).toFixed(2)}MB)`);
+    
+    try {
+      // FIX: Use upload_stream with progress tracking for large files
+      const uploadResult = await new Promise((resolve, reject) => {
+        let uploadStartTime = Date.now();
+        
+        const uploadStream = cloudinary.uploader.upload_stream(
+          {
+            resource_type: 'video',
+            folder: 'travel-courses/videos',
+            chunk_size: 20 * 1024 * 1024, // 20MB chunks for large files
+            timeout: 600000, // 10 minute timeout for Cloudinary
+            eager: [
+              { width: 400, height: 300, crop: "limit", format: "jpg" }
+            ]
+          },
+          (error, result) => {
+            const uploadTime = Date.now() - uploadStartTime;
+            if (error) {
+              console.error('❌ Cloudinary upload failed:', error);
+              reject(error);
+            } else {
+              console.log(`✅ Cloudinary upload completed in ${(uploadTime / 1000).toFixed(2)}s`);
+              console.log(`✅ Video URL: ${result.secure_url}`);
+              resolve(result);
+            }
+          }
+        );
+        
+        // Create read stream with progress tracking
+        const fileStream = fs.createReadStream(req.file.path);
+        let bytesRead = 0;
+        const totalBytes = req.file.size;
+        
+        fileStream.on('data', (chunk) => {
+          bytesRead += chunk.length;
+          const progress = ((bytesRead / totalBytes) * 100).toFixed(1);
+          console.log(`📊 Upload progress: ${progress}% (${(bytesRead / (1024 * 1024)).toFixed(2)}MB / ${(totalBytes / (1024 * 1024)).toFixed(2)}MB)`);
+        });
+        
+        fileStream.on('error', (error) => {
+          console.error('❌ File stream error:', error);
+          reject(error);
+        });
+        
+        // Pipe the file stream to Cloudinary
+        fileStream.pipe(uploadStream);
+      });
+      
+      videoUrl = uploadResult.secure_url;
+      cloudinaryPublicId = uploadResult.public_id;
+      
+      // Generate thumbnail from video (first frame)
+      if (uploadResult.eager && uploadResult.eager.length > 0) {
+        thumbnailUrl = uploadResult.eager[0].secure_url;
+      } else {
+        const thumbnailPublicId = uploadResult.public_id.replace('/', ':');
+        thumbnailUrl = `https://res.cloudinary.com/${process.env.CLOUDINARY_CLOUD_NAME}/video/upload/so_0/${thumbnailPublicId}.jpg`;
+      }
+      
+      console.log('✅ Video uploaded to Cloudinary successfully');
+      console.log('✅ Thumbnail generated:', thumbnailUrl);
+      
+      // Delete local file after successful upload
+      try {
+        fs.unlinkSync(req.file.path);
+        console.log('✅ Local temporary file deleted');
+      } catch (unlinkError) {
+        console.warn('⚠️ Could not delete local file:', unlinkError.message);
+      }
+      
+    } catch (cloudinaryError) {
+      console.error('❌ Cloudinary upload error:', cloudinaryError);
+      
+      // If Cloudinary fails, store locally and return local path
+      videoUrl = `/api/uploads/videos/${path.basename(req.file.path)}`;
+      thumbnailUrl = '';
+      
+      console.log('📁 Fallback to local file storage:', videoUrl);
+      console.log('💡 Video will be served from local storage');
+    }
+
     // Create video document
     const videoData = {
-      title,
-      description,
-      videoType,
-      category: category || '',
-      accessCode: videoType === 'masterclass' ? accessCode : '',
+      title: title.trim(),
+      description: description.trim(),
+      videoType: videoType,
+      category: category ? category.trim() : '',
+      accessCode: videoType === 'masterclass' ? accessCode.trim() : '',
       isActive: true,
       createdAt: new Date(),
       updatedAt: new Date(),
       uploadedBy: req.user._id,
-      uploadedByUsername: req.user.username
+      uploadedByUsername: req.user.username,
+      videoUrl: videoUrl,
+      thumbnailUrl: thumbnailUrl,
+      duration: 0, // You can extract this from the video file if needed
+      fileSize: req.file.size,
+      fileName: req.file.originalname,
+      fileFormat: req.file.mimetype,
+      cloudinaryPublicId: cloudinaryPublicId,
+      // Add local file path if Cloudinary upload failed
+      localFilePath: !videoUrl.startsWith('http') ? req.file.path : '',
+      uploadMethod: videoUrl.startsWith('http') ? 'cloudinary' : 'local'
     };
 
+    console.log(`💾 Saving video to database: ${videoData.title}`);
     const result = await db.collection('videos').insertOne(videoData);
 
     console.log(`✅ ADMIN: Video uploaded successfully: ${title}`);
+    console.log(`✅ Database record created with ID: ${result.insertedId}`);
 
     res.json({
       success: true,
@@ -180,16 +455,60 @@ app.post('/api/admin/upload-video', authMiddleware, async (req, res) => {
       video: {
         _id: result.insertedId,
         ...videoData
-      }
+      },
+      uploadMethod: videoData.uploadMethod,
+      fileSize: `${(videoData.fileSize / (1024 * 1024)).toFixed(2)}MB`
     });
 
   } catch (error) {
     console.error('❌ Error uploading video:', error);
+    
+    // Clean up uploaded file if error occurred
+    if (req.file && fs.existsSync(req.file.path)) {
+      try {
+        fs.unlinkSync(req.file.path);
+        console.log('✅ Cleaned up temporary file after error');
+      } catch (unlinkError) {
+        console.warn('⚠️ Could not clean up temporary file:', unlinkError.message);
+      }
+    }
+    
     res.status(500).json({
       success: false,
       message: 'Error uploading video',
-      error: error.message
+      error: error.message,
+      suggestion: 'For large videos, this may take several minutes. Please try again or use a smaller file.'
     });
+  }
+});
+
+// TEMPORARY DEBUG ROUTE - Add this to test FormData
+app.post('/api/debug/upload-test', upload.single('videoFile'), async (req, res) => {
+  try {
+    console.log('🔍 DEBUG: Testing FormData reception');
+    console.log('📦 Request headers:', req.headers);
+    console.log('📦 Request body:', req.body);
+    console.log('📦 Request file:', req.file);
+    
+    // Clean up test file
+    if (req.file && fs.existsSync(req.file.path)) {
+      fs.unlinkSync(req.file.path);
+    }
+    
+    res.json({
+      success: true,
+      message: 'Debug received',
+      body: req.body,
+      file: req.file ? {
+        originalname: req.file.originalname,
+        size: req.file.size,
+        mimetype: req.file.mimetype
+      } : null,
+      headers: req.headers
+    });
+  } catch (error) {
+    console.error('Debug error:', error);
+    res.status(500).json({ success: false, error: error.message });
   }
 });
 
@@ -269,6 +588,11 @@ app.delete('/api/admin/videos/:id', authMiddleware, async (req, res) => {
 
     const db = mongoose.connection.db;
     
+    // Get video before deleting to clean up files
+    const video = await db.collection('videos').findOne(
+      { _id: new mongoose.Types.ObjectId(videoId) }
+    );
+
     const result = await db.collection('videos').deleteOne(
       { _id: new mongoose.Types.ObjectId(videoId) }
     );
@@ -278,6 +602,29 @@ app.delete('/api/admin/videos/:id', authMiddleware, async (req, res) => {
         success: false,
         message: 'Video not found'
       });
+    }
+
+    // Clean up files
+    if (video) {
+      // Delete from Cloudinary if uploaded there
+      if (video.cloudinaryPublicId) {
+        try {
+          await cloudinary.uploader.destroy(video.cloudinaryPublicId, { resource_type: 'video' });
+          console.log(`✅ Deleted from Cloudinary: ${video.cloudinaryPublicId}`);
+        } catch (cloudinaryError) {
+          console.warn('⚠️ Could not delete from Cloudinary:', cloudinaryError.message);
+        }
+      }
+      
+      // Delete local file if exists
+      if (video.localFilePath && fs.existsSync(video.localFilePath)) {
+        try {
+          fs.unlinkSync(video.localFilePath);
+          console.log(`✅ Deleted local file: ${video.localFilePath}`);
+        } catch (unlinkError) {
+          console.warn('⚠️ Could not delete local file:', unlinkError.message);
+        }
+      }
     }
 
     console.log(`✅ ADMIN: Video deleted successfully: ${videoId}`);
@@ -1100,6 +1447,10 @@ app.get('/api/debug-routes', (req, res) => {
     '/api/course-results/notifications/count',
     '/api/course-results/mark-read',
     
+    // 🚨 ADDED: Video count routes
+    '/api/videos/count',
+    '/api/admin/videos/count',
+    
     '/api/courses/notification-counts',
     '/api/notifications/admin-messages/:userId',
     '/api/courses/:id',
@@ -1144,7 +1495,9 @@ app.get('/api/debug-routes', (req, res) => {
     '/api/videos/validate-masterclass-access',
     '/api/admin/upload-video',
     '/api/admin/videos',
-    '/api/admin/videos/:id'
+    '/api/admin/videos/:id',
+    // DEBUG ROUTES
+    '/api/debug/upload-test'
   ];
   
   console.log('🐛 DEBUG: Listing available routes');
@@ -2319,8 +2672,9 @@ const initializeDatabase = async () => {
     const uploadsDir = path.join(__dirname, 'uploads');
     const coursesDir = path.join(uploadsDir, 'courses');
     const imagesDir = path.join(coursesDir, 'images');
+    const videosDir = path.join(uploadsDir, 'videos'); // ADDED: Videos directory
     
-    [uploadsDir, coursesDir, imagesDir].forEach(dir => {
+    [uploadsDir, coursesDir, imagesDir, videosDir].forEach(dir => {
       if (!fs.existsSync(dir)) {
         fs.mkdirSync(dir, { recursive: true });
         console.log(`✅ Created directory: ${dir}`);
@@ -2699,6 +3053,9 @@ const startServer = async () => {
       console.log(`📍   Upload video (admin): http://localhost:${PORT}/api/admin/upload-video`);
       console.log(`📍   Get videos (admin): http://localhost:${PORT}/api/admin/videos`);
       console.log(`📍   Update/Delete video (admin): http://localhost:${PORT}/api/admin/videos/:id`);
+      console.log(`\n📊 VIDEO COUNT ROUTES - NEWLY ADDED:`);
+      console.log(`📍   Get video counts: http://localhost:${PORT}/api/videos/count`);
+      console.log(`📍   Get admin video counts: http://localhost:${PORT}/api/admin/videos/count`);
       console.log(`\n👥 Community routes:`);
       console.log(`📍   Community messages: http://localhost:${PORT}/api/community/messages`);
       console.log(`📍   Active call: http://localhost:${PORT}/api/community/active-call`);
@@ -2709,6 +3066,7 @@ const startServer = async () => {
       console.log(`📍   Debug route: http://localhost:${PORT}/api/debug/messages-sent`);
       console.log(`📍   Auth test: http://localhost:${PORT}/api/debug/auth-test`);
       console.log(`📍   Routes list: http://localhost:${PORT}/api/debug-routes`);
+      console.log(`📍   Upload test: http://localhost:${PORT}/api/debug/upload-test`);
       console.log(`📍   Mark messages read: http://localhost:${PORT}/api/notifications/mark-admin-messages-read`);
       console.log(`📍   Mark notifications read: http://localhost:${PORT}/api/notifications/mark-read`);
       console.log('\n📊 Enhanced logging enabled - all requests will be logged');
@@ -2718,7 +3076,14 @@ const startServer = async () => {
       console.log('👤 User data: Fetches from users collection for enhanced certificates');
       console.log('📝 Course descriptions: Fetched from general_course_questions collection');
       console.log('🎥 Video system: Cloudinary integration for video storage and streaming');
+      console.log('📊 Video counts: New endpoints for accurate badge notifications');
       console.log('👥 Community features: Real-time messaging and voice calls enabled');
+      console.log('\n🚀 LARGE VIDEO UPLOAD SUPPORT ENABLED:');
+      console.log('✅ 2GB file size limit');
+      console.log('✅ 10-minute timeout for uploads');
+      console.log('✅ Progress tracking for large files');
+      console.log('✅ Fallback to local storage if Cloudinary fails');
+      console.log('✅ Automatic cleanup of temporary files');
     });
 
     // Attempt database connection in background
