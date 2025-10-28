@@ -1,4 +1,3 @@
-// src/destinations/DestinationOverview.jsx
 import React, { useState } from 'react';
 
 const FAQItem = ({ faq }) => {
@@ -7,7 +6,11 @@ const FAQItem = ({ faq }) => {
     <div className="card mb-2">
       <div 
         className="card-header d-flex justify-content-between align-items-center"
-        style={{ cursor: "pointer" }}
+        style={{ 
+          cursor: "pointer",
+          backgroundColor: '#fff3e0', // Light orange background
+          border: '1px solid #ff6f00' // Orange border
+        }}
         onClick={() => setIsOpen(!isOpen)}
       >
         <span>{faq.question}</span>
@@ -45,7 +48,7 @@ const DestinationOverview = ({ course, onStartCourse }) => {
         </div>
         <div className="col-12 col-md-6">
           <h2 className="fw-bold">{course.name}</h2>
-          <p className="text-muted">{course.about}</p>
+          <p className="text-muted" style={{ textAlign: 'justify' }}>{course.about}</p>
         </div>
       </div>
 
@@ -59,8 +62,13 @@ const DestinationOverview = ({ course, onStartCourse }) => {
 
       {/* Call to action */}
       <button 
-        className="btn btn-primary btn-lg d-flex align-items-center gap-2"
+        className="btn btn-lg d-flex align-items-center gap-2"
         onClick={onStartCourse}
+        style={{
+          backgroundColor: '#e3f2fd', // Light blue background
+          color: '#1976d2', // Blue text color
+          border: '1px solid #90caf9' // Light blue border
+        }}
       >
         Start This Course <i className="fas fa-arrow-right"></i>
       </button>

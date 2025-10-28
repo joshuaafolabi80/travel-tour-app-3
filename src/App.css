@@ -1,4 +1,4 @@
-/* App.css */
+/* App.css - UPDATED WITH BOOTSTRAP GRID FOR NAVIGATION */
 
 /* FIX FOR CUT-OFF CONTENT AND NAVIGATION - ADDED AT TOP */
 * {
@@ -161,7 +161,7 @@
   justify-content: center;
 }
 
-/* Text overlay */
+/* FIXED: Text overlay moved downward */
 .carousel-overlay {
   position: absolute;
   top: 0;
@@ -176,7 +176,7 @@
   text-align: center;
   color: var(--white);
   box-sizing: border-box;
-  padding-bottom: 8rem;
+  padding-bottom: 6rem; /* Reduced from 8rem to move text upward */
   margin-top: 10px;
 }
 
@@ -502,10 +502,9 @@
   overflow-x: hidden;
 }
 
-.navigation-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 1.5rem;
+/* UPDATED: Bootstrap Grid Navigation - FIXED FOR MOBILE */
+.navigation-grid-container {
+  width: 100%;
   margin-bottom: 2rem;
 }
 
@@ -513,30 +512,96 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 1.5rem 1rem;
+  justify-content: center;
+  padding: 0.75rem 0.5rem;
   background-color: var(--white);
   border-radius: 12px;
   box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
-  transition: transform 0.3s, box-shadow 0.3s;
+  transition: all 0.3s ease;
   cursor: pointer;
   border: none;
+  min-height: 90px;
+  height: 100%;
+  text-align: center;
+  word-wrap: break-word;
+  overflow: hidden;
+  border: 1px solid rgba(0, 0, 0, 0.05);
 }
 
 .nav-grid-item:hover {
-  transform: translateY(-5px);
-  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+  transform: translateY(-3px);
+  box-shadow: 0 8px 15px -3px rgba(0, 0, 0, 0.1);
+  background-color: #f8f9fa;
 }
 
+/* UPDATED: Larger icon and text sizes */
 .nav-icon {
-  font-size: 2.5rem;
+  font-size: 2rem; /* Increased from 1.75rem */
   color: var(--dark-blue-purple);
-  margin-bottom: 0.75rem;
+  margin-bottom: 0.5rem;
+  flex-shrink: 0;
 }
 
 .nav-text {
-  font-size: 1.125rem;
+  font-size: 0.95rem; /* Increased from 0.85rem */
   font-weight: 600;
   color: var(--text-color-dark);
+  line-height: 1.2;
+  word-break: break-word;
+  hyphens: auto;
+  margin: 0;
+}
+
+/* Mobile-specific grid fixes */
+@media (max-width: 575.98px) {
+  .navigation-grid-container .row {
+    margin: 0 -0.25rem;
+  }
+  
+  .navigation-grid-container .col-4 {
+    padding: 0 0.25rem;
+  }
+  
+  .nav-grid-item {
+    padding: 0.5rem 0.25rem;
+    min-height: 80px;
+  }
+  
+  .nav-icon {
+    font-size: 1.75rem; /* Increased from 1.5rem */
+    margin-bottom: 0.25rem;
+  }
+  
+  .nav-text {
+    font-size: 0.85rem; /* Increased from 0.75rem */
+  }
+}
+
+/* Tablet and larger screens */
+@media (min-width: 768px) {
+  .nav-grid-item {
+    padding: 1rem 0.5rem;
+    min-height: 100px;
+  }
+  
+  .nav-icon {
+    font-size: 2.25rem; /* Increased from 2rem */
+  }
+  
+  .nav-text {
+    font-size: 1rem; /* Increased from 0.9rem */
+  }
+}
+
+/* Large screens */
+@media (min-width: 1024px) {
+  .nav-grid-item {
+    padding: 1.25rem 0.75rem;
+  }
+  
+  .nav-text {
+    font-size: 1.1rem; /* Increased from 1rem */
+  }
 }
 
 .packages-section {
@@ -640,8 +705,8 @@
 /* FIXED NOTIFICATION BADGES */
 .notification-badge {
   position: absolute;
-  top: -5px;
-  right: -5px;
+  top: 2px;
+  right: 4px;
   background-color: #ff4757;
   color: white;
   border-radius: 50%;
@@ -987,10 +1052,6 @@
 }
 
 @media (min-width: 640px) {
-  .navigation-grid {
-    grid-template-columns: repeat(3, 1fr);
-  }
-
   .carousel-text {
     font-size: 1.5rem;
     max-width: 80%;
@@ -998,10 +1059,6 @@
 }
 
 @media (min-width: 1024px) {
-  .navigation-grid {
-    grid-template-columns: repeat(3, 1fr);
-  }
-
   .carousel-text {
     font-size: 1.75rem;
     max-width: 70%;

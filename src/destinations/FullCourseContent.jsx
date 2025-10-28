@@ -352,18 +352,19 @@ const FullCourseContent = ({ course, onTakeQuiz }) => {
           </div>
         </div>
 
-        {/* Navigation buttons */}
+        {/* Navigation buttons - FIXED FOR MOBILE */}
         <div className="navigation-buttons d-flex justify-content-between gap-3 mb-5">
           <button 
-            className="btn btn-primary px-4 py-3 flex-grow-0" 
+            className="btn btn-primary px-3 px-sm-4 py-2 py-sm-3 flex-grow-0" 
             onClick={handlePrevious} 
             disabled={currentSectionIndex === 0}
             style={{
               borderRadius: '12px',
               fontFamily: "'Montserrat', sans-serif",
               fontWeight: '600',
-              fontSize: '1rem',
-              minWidth: '160px',
+              fontSize: '0.9rem',
+              minWidth: '140px',
+              maxWidth: '160px',
               transition: 'all 0.3s ease',
               opacity: currentSectionIndex === 0 ? 0.6 : 1
             }}
@@ -380,15 +381,16 @@ const FullCourseContent = ({ course, onTakeQuiz }) => {
           </button>
           
           <button 
-            className="btn btn-primary px-4 py-3 flex-grow-0" 
+            className="btn btn-primary px-3 px-sm-4 py-2 py-sm-3 flex-grow-0" 
             onClick={handleNext} 
             disabled={currentSectionIndex === course.fullCourseDetails.sections.length - 1}
             style={{
               borderRadius: '12px',
               fontFamily: "'Montserrat', sans-serif",
               fontWeight: '600',
-              fontSize: '1rem',
-              minWidth: '160px',
+              fontSize: '0.9rem',
+              minWidth: '140px',
+              maxWidth: '160px',
               transition: 'all 0.3s ease',
               opacity: currentSectionIndex === course.fullCourseDetails.sections.length - 1 ? 0.6 : 1
             }}
@@ -418,15 +420,16 @@ const FullCourseContent = ({ course, onTakeQuiz }) => {
                   Complete the final quiz to earn your certificate and track your progress in the Quiz Scores section.
                 </p>
                 <button 
-                  className="btn btn-success px-5 py-3 btn-lg" 
+                  className="btn btn-success px-4 px-sm-5 py-2 py-sm-3 btn-lg" 
                   onClick={handleTakeQuiz}
                   disabled={loadingQuiz}
                   style={{
                     borderRadius: '12px',
                     fontFamily: "'Montserrat', sans-serif",
                     fontWeight: '600',
-                    fontSize: '1.1rem',
-                    minWidth: '200px',
+                    fontSize: '1rem',
+                    minWidth: '180px',
+                    maxWidth: '200px',
                     transition: 'all 0.3s ease'
                   }}
                   onMouseEnter={(e) => {
